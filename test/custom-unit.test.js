@@ -1,6 +1,6 @@
 'use strict';
 
-const {describe, test, expect, jest: jestGlobals, beforeEach, afterEach,} = require('@jest/globals');
+const { describe, test, expect, jest: jestGlobals, beforeEach, afterEach } = require('@jest/globals');
 
 jestGlobals.mock('workerpool', () => ({
 	pool: jestGlobals.fn(() => ({
