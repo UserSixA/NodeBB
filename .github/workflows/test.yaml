@@ -3,10 +3,12 @@ name: Lint and test
 on:
   push:
     branches:
+      - main
       - master
       - develop
   pull_request:
     branches:
+      - main
       - master
       - develop
 
@@ -199,6 +201,213 @@ jobs:
           flag-name: ${{ matrix.os }}-node-${{ matrix.node }}-db-${{ matrix.database }}
           parallel: true
           fail-on-error: false
+
+  custom_tests:
+    name: Custom Jest and integration tests
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: 'mongo:8.3'
+        ports:
+          - 27017:27017
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - run: cp install/package.json package.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        uses: bahmutov/npm-install@v1
+        with:
+          useLockFile: false
+
+      - name: Install custom unit test framework
+        run: npm install --no-save jest
+
+      - name: Setup NodeBB on MongoDB
+        env:
+          SETUP: >-
+            {
+              "url": "http://127.0.0.1:4567",
+              "secret": "abcdef",
+              "admin:username": "admin",
+              "admin:email": "test@example.org",
+              "admin:password": "hAN3Eg8W",
+              "admin:password:confirm": "hAN3Eg8W",
+
+              "database": "mongo",
+              "mongo:host": "127.0.0.1",
+              "mongo:port": 27017,
+              "mongo:username": "",
+              "mongo:password": "",
+              "mongo:database": "nodebb"
+            }
+          CI: >-
+            {
+              "host": "127.0.0.1",
+              "port": 27017,
+              "database": "ci_test"
+            }
+        run: node app --setup="${SETUP}" --ci="${CI}"
+
+      - name: Run Jest unit tests
+        run: npx jest test/custom-unit.test.js --runInBand
+
+      - name: Run Mocha integration tests
+        run: npx mocha test/custom-integration.js
+
+  custom_e2e:
+    name: Custom Playwright E2E tests
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: 'mongo:8.3'
+        ports:
+          - 27017:27017
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - run: cp install/package.json package.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        uses: bahmutov/npm-install@v1
+        with:
+          useLockFile: false
+
+      - name: Install Playwright dependency
+        run: npm install --no-save @playwright/test
+
+      - name: Setup NodeBB on MongoDB
+        env:
+          SETUP: >-
+            {
+              "url": "http://127.0.0.1:4567",
+              "secret": "abcdef",
+              "admin:username": "admin",
+              "admin:email": "test@example.org",
+              "admin:password": "hAN3Eg8W",
+              "admin:password:confirm": "hAN3Eg8W",
+
+              "database": "mongo",
+              "mongo:host": "127.0.0.1",
+              "mongo:port": 27017,
+              "mongo:username": "",
+              "mongo:password": "",
+              "mongo:database": "nodebb"
+            }
+          CI: >-
+            {
+              "host": "127.0.0.1",
+              "port": 27017,
+              "database": "ci_test"
+            }
+        run: node app --setup="${SETUP}" --ci="${CI}"
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        env:
+          BASE_URL: http://127.0.0.1:4567
+        run: npx playwright test --workers=1
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 30
+
+  custom_load:
+    name: Custom k6 load test
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: 'mongo:8.3'
+        ports:
+          - 27017:27017
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - run: cp install/package.json package.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        uses: bahmutov/npm-install@v1
+        with:
+          useLockFile: false
+
+      - name: Setup NodeBB on MongoDB
+        env:
+          SETUP: >-
+            {
+              "url": "http://127.0.0.1:4567",
+              "secret": "abcdef",
+              "admin:username": "admin",
+              "admin:email": "test@example.org",
+              "admin:password": "hAN3Eg8W",
+              "admin:password:confirm": "hAN3Eg8W",
+
+              "database": "mongo",
+              "mongo:host": "127.0.0.1",
+              "mongo:port": 27017,
+              "mongo:username": "",
+              "mongo:password": "",
+              "mongo:database": "nodebb"
+            }
+          CI: >-
+            {
+              "host": "127.0.0.1",
+              "port": 27017,
+              "database": "ci_test"
+            }
+        run: node app --setup="${SETUP}" --ci="${CI}"
+
+      - name: Install k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Run k6 smoke load test
+        env:
+          BASE_URL: http://127.0.0.1:4567
+          SMOKE: '1'
+        run: |
+          node app.js > /tmp/nodebb-k6.log 2>&1 &
+          NODEBB_PID=$!
+          trap "kill $NODEBB_PID || true" EXIT
+          for i in {1..60}; do
+            if curl -fsS "$BASE_URL/api/config" > /dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS "$BASE_URL/api/config" > /dev/null
+          k6 run load/nodebb-load-test.js
 
   finish:
     permissions:
