@@ -1,8 +1,10 @@
 'use strict';
 
-jest.mock('workerpool', () => ({
-	pool: jest.fn(() => ({
-		exec: jest.fn(async (method, args) => {
+const {describe, test, expect, jest: jestGlobals, beforeEach, afterEach,} = require('@jest/globals');
+
+jestGlobals.mock('workerpool', () => ({
+	pool: jestGlobals.fn(() => ({
+		exec: jestGlobals.fn(async (method, args) => {
 			const bcrypt = require('bcryptjs');
 
 			if (method === 'hash') {
@@ -71,7 +73,7 @@ describe('NodeBB Custom Unit Tests with Jest', () => {
 		});
 
 		test('should flag a socket after too many calls inside the configured timeframe', () => {
-			const warn = jest.spyOn(winston, 'warn').mockImplementation(() => {});
+			const warn = jestGlobals.spyOn(winston, 'warn').mockImplementation(() => {});
 			const socket = {};
 			let flooding = false;
 
